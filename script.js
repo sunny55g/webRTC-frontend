@@ -52,7 +52,7 @@ function handleConnection() {
         return;
     }
 
-    ws = new WebSocket('wss://tcp-backend-5a85.onrender.com');
+    ws = new WebSocket('wss://webrtc-backend-oi3n.onrender.com');
 
     ws.onopen = () => {
         ws.send(JSON.stringify({
