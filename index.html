@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title> TCP/IP Messenger</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>TCP</h1>
+            <div class="status-container">
+                <span class="status-badge disconnected">Disconnected</span>
+                <span class="mode-badge">Mode: <span id="mode-display">Sender</span></span>
+            </div>
+        </header>
+
+        <div class="connection-panel">
+            <div class="input-group">
+                <label for="name">Your Name:</label>
+                <input type="text" id="name" placeholder="Enter your name">
+            </div>
+            
+            <div class="input-group">
+                <label for="target">Target Address:</label>
+                <input type="text" id="target" placeholder="Enter target IP or address">
+            </div>
+
+            <div class="controls">
+                <button id="connect-btn">Connect</button>
+                <button id="disconnect-btn" disabled>Disconnect</button>
+                <button id="toggle-mode-btn">Switch to Receiver Mode</button>
+            </div>
+        </div>
+
+        <div class="chat-panel">
+            <div class="messages-container" id="messages">
+                <div class="system-message">Welcome to Whisper Across Wires. Connect to start messaging.</div>
+            </div>
+            
+            <div class="input-panel">
+                <textarea id="message-input" placeholder="Type your message here..." disabled></textarea>
+                <button id="send-btn" disabled>Send</button>
+            </div>
+        </div>
+        
+        <div class="connection-details">
+            <div class="detail-item">
+                <span class="detail-label">Local Address:</span>
+                <span class="detail-value" id="local-address">Not connected</span>
+            </div>
+            <div class="detail-item">
+                <span class="detail-label">Remote Address:</span>
+                <span class="detail-value" id="remote-address">Not connected</span>
+            </div>
+        </div>
+    </div>
+    
+    <script src="script.js"></script>
+</body>
+</html>
