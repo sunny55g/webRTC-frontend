@@ -126,22 +126,30 @@ function handleConnection() {
 
         setupPeer();
         
-        if (isSenderMode) {
-            // Create data channel for sender
-            dataChannel = localConnection.createDataChannel("chat");
-            setupDataChannel();
-            
-            // Create and send offer
-            localConnection.createOffer()
-                .then(offer => localConnection.setLocalDescription(offer))
-                .then(() => {
-                    sendSignal({ sdp: localConnection.localDescription });
-                })
-                .catch(error => {
-                    console.error("Error creating offer:", error);
-                    addSystemMessage("Error creating connection offer.");
-                });
-        }
+if (isSenderMode) {
+    dataChannel = localConnection.createDataChannel("chat");
+
+    dataChannel.onopen = () => {
+        console.log("✅ Sender: Data channel is open");
+        setupDataChannel();
+
+        localConnection.createOffer()
+            .then(offer => localConnection.setLocalDescription(offer))
+            .then(() => {
+                sendSignal({ sdp: localConnection.localDescription });
+            })
+            .catch(error => {
+                console.error("Error creating offer:", error);
+                addSystemMessage("Error creating connection offer.");
+            });
+    };
+
+    dataChannel.onerror = (error) => {
+        console.error("❌ Sender: Data Channel Error:", error);
+        addSystemMessage('Error in data channel');
+    };
+}
+
 
         // Update connection details display
         const localAddress = `${getLocalIP()}:${localPort}`;
@@ -234,6 +242,7 @@ function setupPeer() {
 
     localConnection.ondatachannel = event => {
         dataChannel = event.channel;
+        console.log("📥 Receiver got data channel", event.channel);
         setupDataChannel();
     };
 }
@@ -256,11 +265,24 @@ function sendSignal(data) {
 
 // Set up the data channel for messaging
 function setupDataChannel() {
-    dataChannel.onopen = () => {
-        addSystemMessage('Direct P2P connection established');
-        messageInput.disabled = false;
-        sendBtn.disabled = false;
-    };
+dataChannel.onopen = () => {
+  console.log("✅ Sender: Data channel open");
+  addSystemMessage('Direct P2P connection established');
+  messageInput.disabled = false;
+  sendBtn.disabled = false;
+
+  // ✅ Safe to create and send offer now
+  localConnection.createOffer()
+    .then(offer => localConnection.setLocalDescription(offer))
+    .then(() => {
+      sendSignal({ sdp: localConnection.localDescription });
+    })
+    .catch(error => {
+      console.error("Error creating offer:", error);
+      addSystemMessage("Error creating connection offer.");
+    });
+};
+
 
     dataChannel.onmessage = (event) => {
         try {
@@ -284,6 +306,7 @@ function setupDataChannel() {
     };
 
     dataChannel.onerror = (error) => {
+        console.error("❌ Data channel error:", error);
         console.error("Data Channel Error:", error);
         addSystemMessage('Error in data channel');
     };
