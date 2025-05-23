@@ -1,3 +1,4 @@
+window.addEventListener('DOMContentLoaded', () => {
 // Global variables
 let localConnection = null;
 let dataChannel = null;
@@ -389,3 +390,4 @@ function getLocalIP() {
 
 // Initialize UI based on current mode
 updateUIForMode();
+});
