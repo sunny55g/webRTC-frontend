@@ -1,73 +1,60 @@
+<!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TCP/IP Messenger - Real-time P2P Communication</title>
-    <meta name="description" content="Advanced TCP/IP Messenger with WebRTC support for real-time peer-to-peer communication">
-    <meta name="author" content="TCP/IP Messenger">
-    <link rel="stylesheet" href="style.css">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TCP/IP Messenger - Real-time P2P Communication</title>
+  <meta name="description" content="Advanced TCP/IP Messenger with WebRTC support for real-time peer-to-peer communication" />
+  <meta name="author" content="TCP/IP Messenger" />
+  <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-    <div class="container">
-        <header>
-            <h1>TCP/IP Messenger</h1>
-            <div class="status-container">
-                <span class="status-badge disconnected">Disconnected</span>
-                <span class="mode-badge">Mode: <span id="mode-display">Sender</span></span>
-            </div>
-        </header>
+  <div class="container">
+    <header>
+      <h1>TCP/IP Messenger</h1>
+      <div class="status-container">
+        <span class="status-badge disconnected">Disconnected</span>
+        <span class="mode-badge">Mode: <span id="mode-display">Sender</span></span>
+      </div>
+    </header>
 
-        <div class="connection-panel">
-            <div class="input-group">
-                <label for="name">Your Name:</label>
-                <input type="text" id="name" placeholder="Enter your name">
-            </div>
-            
-            <div class="input-group">
-                <label for="local-port">Local Port:</label>
-                <input type="text" id="local-port" placeholder="Enter your local port (e.g. 8080)">
-            </div>
-            
-            <div class="input-group target-group">
-                <label for="target-ip">Target IP:</label>
-                <input type="text" id="target-ip" placeholder="Enter target IP address">
-            </div>
-            
-            <div class="input-group target-group">
-                <label for="target-port">Target Port:</label>
-                <input type="text" id="target-port" placeholder="Enter target port">
-            </div>
+    <div class="connection-panel">
+      <div class="input-group">
+        <label for="name">Your Name:</label>
+        <input type="text" id="name" placeholder="Enter your name" />
+      </div>
 
-            <div class="controls">
-                <button id="connect-btn">Connect</button>
-                <button id="disconnect-btn" disabled>Disconnect</button>
-                <button id="toggle-mode-btn">Switch to Receiver Mode</button>
-            </div>
-        </div>
+      <div class="input-group">
+        <label for="local-port">Local Port:</label>
+        <input type="text" id="local-port" placeholder="Enter your local port (e.g. 8080)" />
+      </div>
 
-        <div class="chat-panel">
-            <div class="messages-container" id="messages">
-                <div class="system-message">Welcome to TCP/IP Messenger. Connect to start messaging.</div>
-            </div>
-            
-            <div class="input-panel">
-                <textarea id="message-input" placeholder="Type your message here..." disabled></textarea>
-                <button id="send-btn" disabled>Send</button>
-            </div>
-        </div>
-        
-        <div class="connection-details">
-            <div class="detail-item">
-                <span class="detail-label">Local Address:</span>
-                <span class="detail-value" id="local-address">Not connected</span>
-            </div>
-            <div class="detail-item">
-                <span class="detail-label">Remote Address:</span>
-                <span class="detail-value" id="remote-address">Not connected</span>
-            </div>
-        </div>
+      <div class="input-group target-group">
+        <label for="target-address">Target Address:</label>
+        <input type="text" id="target-address" placeholder="Enter target IP:Port (e.g. 127.0.0.1:8080)" />
+      </div>
+
+      <div class="controls">
+        <button id="connect-btn">Connect</button>
+        <button id="disconnect-btn" disabled>Disconnect</button>
+        <button id="toggle-mode-btn">Switch to Receiver Mode</button>
+      </div>
     </div>
-    
-    <script src="script.js"></script>
-</body>
-</html>
+
+    <div class="chat-panel">
+      <div class="messages-container" id="messages">
+        <div class="system-message">Welcome to TCP/IP Messenger. Connect to start messaging.</div>
+      </div>
+
+      <div class="input-panel">
+        <textarea id="message-input" placeholder="Type your message here..." disabled></textarea>
+        <button id="send-btn" disabled>Send</button>
+      </div>
+    </div>
+
+    <div class="connection-details">
+      <div class="detail-item">
+        <span class="detail-label">Local Address:</span>
+        <span class="detail-value" id="local-address">Not connected</span>
+      </div>
+      <div class="detai
