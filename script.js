@@ -1,7 +1,6 @@
-// ✅ Patched script.js with WebSocket ready check and safe dataChannel offer
+// ✅ Fully Patched script.js with full logging and ICE candidate tracing
 
 window.addEventListener('DOMContentLoaded', () => {
-    // Global variables
     let localConnection = null;
     let dataChannel = null;
     let ws = null;
@@ -11,7 +10,6 @@ window.addEventListener('DOMContentLoaded', () => {
     let targetPort = '';
     let isSenderMode = true;
 
-    // DOM elements
     const statusBadge = document.querySelector('.status-badge');
     const connectBtn = document.getElementById('connect-btn');
     const disconnectBtn = document.getElementById('disconnect-btn');
@@ -26,7 +24,6 @@ window.addEventListener('DOMContentLoaded', () => {
     const localAddressDisplay = document.getElementById('local-address');
     const remoteAddressDisplay = document.getElementById('remote-address');
 
-    // Event listeners
     connectBtn.addEventListener('click', handleConnection);
     disconnectBtn.addEventListener('click', handleDisconnection);
     toggleModeBtn.addEventListener('click', toggleMode);
@@ -96,7 +93,7 @@ window.addEventListener('DOMContentLoaded', () => {
 
         ws.onopen = () => {
             const trySendInit = () => {
-                if (ws.readyState === WebSocket.OPEN) {
+                if (ws && ws.readyState === WebSocket.OPEN) {
                     ws.send(JSON.stringify({
                         type: 'init',
                         name: username,
@@ -106,11 +103,13 @@ window.addEventListener('DOMContentLoaded', () => {
                         targetPort,
                         mode: isSenderMode ? 'sender' : 'receiver'
                     }));
+
                     setupPeer();
 
                     if (isSenderMode) {
                         dataChannel = localConnection.createDataChannel("chat");
                         dataChannel.onopen = () => {
+                            console.log("✅ Data channel open");
                             setupDataChannel();
                             localConnection.createOffer()
                                 .then(offer => localConnection.setLocalDescription(offer))
@@ -134,16 +133,18 @@ window.addEventListener('DOMContentLoaded', () => {
         ws.onmessage = async event => {
             try {
                 const msg = JSON.parse(event.data);
-                console.log("Received message:", msg);
+                console.log("🔁 Received message:", msg);
                 if (msg.type === 'signal' && msg.data) {
                     if (msg.data.sdp) {
                         await localConnection.setRemoteDescription(new RTCSessionDescription(msg.data.sdp));
                         if (msg.data.sdp.type === 'offer') {
                             localConnection.createAnswer()
                                 .then(answer => localConnection.setLocalDescription(answer))
-                                .then(() => sendSignal({ sdp: localConnection.localDescription }));
+                                .then(() => sendSignal({ sdp: localConnection.localDescription }))
+                                .catch(err => console.error("Answer creation error:", err));
                         }
                     } else if (msg.data.candidate) {
+                        console.log("🧊 Adding ICE candidate:", msg.data);
                         await localConnection.addIceCandidate(new RTCIceCandidate(msg.data));
                     }
                 } else if (msg.type === 'error') {
@@ -151,7 +152,7 @@ window.addEventListener('DOMContentLoaded', () => {
                     handleDisconnection();
                 }
             } catch (err) {
-                console.error("Error handling message:", err);
+                console.error("❌ Error handling message:", err);
             }
         };
 
@@ -166,11 +167,17 @@ window.addEventListener('DOMContentLoaded', () => {
                 { urls: 'stun:stun1.l.google.com:19302' }
             ]
         });
-        localConnection.onicecandidate = e => e.candidate && sendSignal(e.candidate);
+        localConnection.onicecandidate = e => {
+            if (e.candidate) {
+                console.log("📤 Sending ICE candidate", e.candidate);
+                sendSignal(e.candidate);
+            }
+        };
         localConnection.onconnectionstatechange = () => {
-            console.log("Connection state:", localConnection.connectionState);
+            console.log("🔌 Connection state:", localConnection.connectionState);
         };
         localConnection.ondatachannel = event => {
+            console.log("📥 Receiver got data channel", event.channel);
             dataChannel = event.channel;
             setupDataChannel();
         };
@@ -179,18 +186,27 @@ window.addEventListener('DOMContentLoaded', () => {
     function sendSignal(data) {
         if (ws && ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({
-                type: 'signal', name: username, localIP: getLocalIP(), localPort, targetIP, targetPort, mode: isSenderMode ? 'sender' : 'receiver', data
+                type: 'signal',
+                name: username,
+                localIP: getLocalIP(),
+                localPort,
+                targetIP,
+                targetPort,
+                mode: isSenderMode ? 'sender' : 'receiver',
+                data
             }));
         }
     }
 
     function setupDataChannel() {
         dataChannel.onopen = () => {
+            console.log("✅ Data channel is ready");
             addSystemMessage('P2P channel open');
             messageInput.disabled = false;
             sendBtn.disabled = false;
         };
         dataChannel.onmessage = event => {
+            console.log("💬 Received message on data channel:", event.data);
             try {
                 const data = JSON.parse(event.data);
                 addMessageToChat(data, false);
@@ -198,8 +214,14 @@ window.addEventListener('DOMContentLoaded', () => {
                 addMessageToChat({ sender: 'Peer', content: event.data, timestamp: new Date().toISOString() }, false);
             }
         };
-        dataChannel.onclose = () => addSystemMessage('P2P connection closed');
-        dataChannel.onerror = err => addSystemMessage('Data channel error: ' + err);
+        dataChannel.onclose = () => {
+            console.warn("⚠️ Data channel closed");
+            addSystemMessage('P2P connection closed');
+        };
+        dataChannel.onerror = err => {
+            console.error("❌ Data channel error:", err);
+            addSystemMessage('Data channel error: ' + err);
+        };
     }
 
     function sendMessage() {
@@ -208,9 +230,11 @@ window.addEventListener('DOMContentLoaded', () => {
             const msg = { sender: username, content, timestamp: new Date().toISOString() };
             try {
                 dataChannel.send(JSON.stringify(msg));
+                console.log("📤 Sent message:", msg);
                 addMessageToChat(msg, true);
                 messageInput.value = '';
             } catch (e) {
+                console.error("❌ Failed to send message:", e);
                 addSystemMessage("Send failed: " + e);
             }
         }
