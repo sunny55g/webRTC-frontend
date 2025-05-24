@@ -1,5 +1,6 @@
 // Global variables
 let localConnection = null;
+let remoteConnection = null;
 let dataChannel = null;
 let ws = null;
 let username = '';
@@ -7,6 +8,7 @@ let localPort = '';
 let targetIP = '';
 let targetPort = '';
 let isSenderMode = true;
+let isConnecting = false;
 
 // DOM elements
 const statusBadge = document.querySelector('.status-badge');
@@ -71,7 +73,6 @@ function updateUIForMode() {
     modeDisplay.textContent = isSenderMode ? 'Sender' : 'Receiver';
     toggleModeBtn.textContent = isSenderMode ? 'Switch to Receiver Mode' : 'Switch to Sender Mode';
     
-    // Show or hide target input fields based on mode
     const targetGroup = document.querySelector('.target-group');
     targetGroup.style.display = isSenderMode ? 'block' : 'none';
 
@@ -82,18 +83,23 @@ function updateUIForMode() {
 
 // Handle establishing connection
 function handleConnection() {
+    if (isConnecting) return;
+    
     console.log('Starting connection process...');
+    isConnecting = true;
     
     username = nameInput.value.trim();
     localPort = localPortInput.value.trim();
     
     if (!username || !localPort) {
         addSystemMessage('Please fill in your name and local port.');
+        isConnecting = false;
         return;
     }
 
     if (!validatePort(localPort)) {
         addSystemMessage('Please enter a valid local port (1-65535).');
+        isConnecting = false;
         return;
     }
 
@@ -101,17 +107,20 @@ function handleConnection() {
         const targetAddress = targetAddressInput.value.trim();
         if (!targetAddress) {
             addSystemMessage('Please enter target address in format IP:PORT (e.g., 127.0.0.1:8080).');
+            isConnecting = false;
             return;
         }
 
         const parsed = parseTargetAddress(targetAddress);
         if (!parsed) {
             addSystemMessage('Invalid target address format. Use IP:PORT (e.g., 127.0.0.1:8080).');
+            isConnecting = false;
             return;
         }
 
         if (!validateIP(parsed.ip) || !validatePort(parsed.port)) {
             addSystemMessage('Invalid IP address or port in target address.');
+            isConnecting = false;
             return;
         }
 
@@ -121,40 +130,27 @@ function handleConnection() {
 
     addSystemMessage('Connecting to signaling server...');
     
-    // Use a working WebSocket signaling server
+    // Connect to a real signaling server
     const wsUrl = 'https://webrtc-backend-wd3d.onrender.com';
     ws = new WebSocket(wsUrl);
 
     ws.onopen = () => {
-        console.log('WebSocket connected');
+        console.log('WebSocket connected to signaling server');
         addSystemMessage('Connected to signaling server');
         
-        setupPeer();
+        // Send join message with room ID based on target
+        const roomId = isSenderMode ? `${targetIP}:${targetPort}` : `${getLocalIP()}:${localPort}`;
+        const joinMessage = {
+            type: 'join',
+            room: roomId,
+            username: username,
+            mode: isSenderMode ? 'sender' : 'receiver'
+        };
         
-        if (isSenderMode) {
-            // Create data channel for sender
-            dataChannel = localConnection.createDataChannel("chat", {
-                ordered: true
-            });
-            setupDataChannel();
-            
-            // Create and send offer
-            localConnection.createOffer()
-                .then(offer => {
-                    console.log('Created offer:', offer);
-                    return localConnection.setLocalDescription(offer);
-                })
-                .then(() => {
-                    console.log('Set local description');
-                    // In a real implementation, you would send this to the peer
-                    addSystemMessage('Connection offer created. Waiting for peer...');
-                })
-                .catch(error => {
-                    console.error("Error creating offer:", error);
-                    addSystemMessage("Error creating connection offer: " + error.message);
-                });
-        }
-
+        ws.send(JSON.stringify(joinMessage));
+        
+        setupPeerConnection();
+        
         // Update connection details display
         const localAddress = getLocalIP() + ':' + localPort;
         const remoteAddress = isSenderMode ? targetIP + ':' + targetPort : 'Waiting for connection...';
@@ -163,59 +159,92 @@ function handleConnection() {
         remoteAddressDisplay.textContent = remoteAddress;
         
         setConnectedState(true);
-        
-        // Simulate successful P2P connection for testing
-        setTimeout(() => {
-            if (dataChannel && dataChannel.readyState !== 'open') {
-                addSystemMessage('P2P connection established (simulated)');
-                messageInput.disabled = false;
-                sendBtn.disabled = false;
-            }
-        }, 2000);
+        isConnecting = false;
     };
 
-    ws.onmessage = (event) => {
-        console.log('Received WebSocket message:', event.data);
-        // Handle signaling messages here
+    ws.onmessage = async (event) => {
+        console.log('Received signaling message:', event.data);
+        try {
+            const message = JSON.parse(event.data);
+            await handleSignalingMessage(message);
+        } catch (error) {
+            console.error('Error handling signaling message:', error);
+        }
     };
 
     ws.onerror = (error) => {
         console.error('WebSocket error:', error);
         addSystemMessage('Error connecting to signaling server');
+        isConnecting = false;
     };
     
     ws.onclose = () => {
         console.log('WebSocket closed');
         addSystemMessage('Disconnected from signaling server');
+        isConnecting = false;
     };
 }
 
+// Handle signaling messages
+async function handleSignalingMessage(message) {
+    console.log('Handling message:', message);
+    
+    switch (message.type) {
+        case 'offer':
+            if (!isSenderMode) {
+                await handleOffer(message);
+            }
+            break;
+        case 'answer':
+            if (isSenderMode) {
+                await handleAnswer(message);
+            }
+            break;
+        case 'ice-candidate':
+            await handleIceCandidate(message);
+            break;
+        case 'user-joined':
+            if (isSenderMode && message.mode === 'receiver') {
+                addSystemMessage('Receiver found, initiating connection...');
+                await createOffer();
+            }
+            break;
+    }
+}
+
 // Set up WebRTC peer connection
-function setupPeer() {
+function setupPeerConnection() {
     console.log('Setting up peer connection...');
     
     localConnection = new RTCPeerConnection({
         iceServers: [
             { urls: 'stun:stun.l.google.com:19302' },
-            { urls: 'stun:stun1.l.google.com:19302' }
+            { urls: 'stun:stun1.l.google.com:19302' },
+            { urls: 'stun:stun2.l.google.com:19302' }
         ]
     });
 
     localConnection.onicecandidate = event => {
-        if (event.candidate) {
-            console.log('ICE candidate:', event.candidate);
-            // In a real implementation, send this to the peer via signaling server
+        if (event.candidate && ws && ws.readyState === WebSocket.OPEN) {
+            console.log('Sending ICE candidate');
+            ws.send(JSON.stringify({
+                type: 'ice-candidate',
+                candidate: event.candidate
+            }));
         }
     };
 
     localConnection.onconnectionstatechange = () => {
         console.log("Connection state:", localConnection.connectionState);
         if (localConnection.connectionState === 'connected') {
-            addSystemMessage("WebRTC connection established");
+            addSystemMessage("P2P connection established successfully!");
         } else if (localConnection.connectionState === 'disconnected' || 
                   localConnection.connectionState === 'failed' || 
                   localConnection.connectionState === 'closed') {
-            addSystemMessage('WebRTC connection ' + localConnection.connectionState);
+            addSystemMessage('P2P connection ' + localConnection.connectionState);
+            if (localConnection.connectionState === 'failed') {
+                handleDisconnection();
+            }
         }
     };
 
@@ -224,6 +253,70 @@ function setupPeer() {
         dataChannel = event.channel;
         setupDataChannel();
     };
+
+    // If sender, create data channel
+    if (isSenderMode) {
+        dataChannel = localConnection.createDataChannel("chat", {
+            ordered: true
+        });
+        setupDataChannel();
+    }
+}
+
+// Create offer (sender)
+async function createOffer() {
+    try {
+        const offer = await localConnection.createOffer();
+        await localConnection.setLocalDescription(offer);
+        
+        console.log('Sending offer');
+        ws.send(JSON.stringify({
+            type: 'offer',
+            offer: offer
+        }));
+    } catch (error) {
+        console.error("Error creating offer:", error);
+        addSystemMessage("Error creating connection offer");
+    }
+}
+
+// Handle offer (receiver)
+async function handleOffer(message) {
+    try {
+        await localConnection.setRemoteDescription(message.offer);
+        const answer = await localConnection.createAnswer();
+        await localConnection.setLocalDescription(answer);
+        
+        console.log('Sending answer');
+        ws.send(JSON.stringify({
+            type: 'answer',
+            answer: answer
+        }));
+    } catch (error) {
+        console.error("Error handling offer:", error);
+        addSystemMessage("Error handling connection offer");
+    }
+}
+
+// Handle answer (sender)
+async function handleAnswer(message) {
+    try {
+        await localConnection.setRemoteDescription(message.answer);
+        console.log('Answer received and set');
+    } catch (error) {
+        console.error("Error handling answer:", error);
+        addSystemMessage("Error handling connection answer");
+    }
+}
+
+// Handle ICE candidate
+async function handleIceCandidate(message) {
+    try {
+        await localConnection.addIceCandidate(message.candidate);
+        console.log('ICE candidate added');
+    } catch (error) {
+        console.error("Error adding ICE candidate:", error);
+    }
 }
 
 // Set up the data channel for messaging
@@ -234,7 +327,7 @@ function setupDataChannel() {
 
     dataChannel.onopen = () => {
         console.log('Data channel opened');
-        addSystemMessage('Direct P2P connection established');
+        addSystemMessage('Ready to send messages!');
         messageInput.disabled = false;
         sendBtn.disabled = false;
     };
@@ -245,9 +338,8 @@ function setupDataChannel() {
             const data = JSON.parse(event.data);
             addMessageToChat(data, false);
         } catch (e) {
-            // If it's not JSON, treat it as plain text
             const msg = {
-                sender: isSenderMode ? targetIP : 'Peer',
+                sender: 'Remote',
                 content: event.data,
                 timestamp: new Date().toISOString()
             };
@@ -257,45 +349,43 @@ function setupDataChannel() {
 
     dataChannel.onclose = () => {
         console.log('Data channel closed');
-        addSystemMessage('P2P connection closed');
+        addSystemMessage('Message channel closed');
         messageInput.disabled = true;
         sendBtn.disabled = true;
     };
 
     dataChannel.onerror = (error) => {
         console.error("Data Channel Error:", error);
-        addSystemMessage('Error in data channel');
+        addSystemMessage('Error in message channel');
     };
 }
 
 // Send a message to the peer
 function sendMessage() {
     const content = messageInput.value.trim();
-    if (!content) return;
+    if (!content || !dataChannel || dataChannel.readyState !== 'open') {
+        if (!dataChannel || dataChannel.readyState !== 'open') {
+            addSystemMessage('Not connected to peer. Please establish connection first.');
+        }
+        return;
+    }
 
-    console.log('Attempting to send message:', content);
+    console.log('Sending message:', content);
 
-    // For demo purposes, since we don't have a real peer connection,
-    // we'll simulate sending and receiving
     const msg = {
         sender: username,
         content: content,
         timestamp: new Date().toISOString()
     };
     
-    // Add as sent message
-    addMessageToChat(msg, true);
-    messageInput.value = '';
-    
-    // Simulate echo response for testing
-    setTimeout(() => {
-        const echoMsg = {
-            sender: 'Echo',
-            content: 'Echo: ' + content,
-            timestamp: new Date().toISOString()
-        };
-        addMessageToChat(echoMsg, false);
-    }, 1000);
+    try {
+        dataChannel.send(JSON.stringify(msg));
+        addMessageToChat(msg, true);
+        messageInput.value = '';
+    } catch (error) {
+        console.error('Error sending message:', error);
+        addSystemMessage('Error sending message: ' + error.message);
+    }
 }
 
 // Add a message to the chat UI
@@ -365,6 +455,7 @@ function handleDisconnection() {
     
     messageInput.disabled = true;
     sendBtn.disabled = true;
+    isConnecting = false;
 }
 
 // Clear connection details in UI
@@ -381,4 +472,4 @@ function getLocalIP() {
 // Initialize UI based on current mode
 updateUIForMode();
 
-console.log('TCP/IP Messenger initialized');
+console.log('TCP/IP Messenger initialized with real WebRTC');
