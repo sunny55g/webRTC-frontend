@@ -1,435 +1,347 @@
 
-// Global variables
-let localConnection = null;
-let dataChannel = null;
-let ws = null;
-let isConnected = false;
-let currentMode = 'sender'; // 'sender' or 'receiver'
-let userName = '';
-let targetAddress = '';
-
-// DOM elements
-const statusBadge = document.getElementById('status-badge');
-const modeBadge = document.getElementById('mode-badge');
-const connectBtn = document.getElementById('connect-btn');
-const disconnectBtn = document.getElementById('disconnect-btn');
-const toggleModeBtn = document.getElementById('toggle-mode-btn');
-const nameInput = document.getElementById('name');
-const targetAddressInput = document.getElementById('target-address');
-const messageInput = document.getElementById('message-input');
-const sendBtn = document.getElementById('send-btn');
-const messagesContainer = document.getElementById('messages-container');
-const localAddressDisplay = document.getElementById('local-address');
-const remoteAddressDisplay = document.getElementById('remote-address');
-
-// Event listeners
-connectBtn.addEventListener('click', handleConnect);
-disconnectBtn.addEventListener('click', handleDisconnect);
-toggleModeBtn.addEventListener('click', toggleMode);
-sendBtn.addEventListener('click', sendMessage);
-messageInput.addEventListener('keypress', function(e) {
-    if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        sendMessage();
+class WebRTCMessenger {
+    constructor() {
+        this.ws = null;
+        this.pc = null;
+        this.dataChannel = null;
+        this.isSender = true;
+        this.isConnected = false;
+        this.localUsername = '';
+        this.targetAddress = '';
+        
+        // WebSocket server URL (replace with your Render URL when deployed)
+        this.signalingServerUrl = 'ws://localhost:3001';
+        
+        this.initializeElements();
+        this.bindEvents();
+        this.updateUI();
     }
-});
 
-// Initialize
-updateUI();
+    initializeElements() {
+        // Connection elements
+        this.nameInput = document.getElementById('name');
+        this.targetAddressInput = document.getElementById('target-address');
+        this.connectBtn = document.getElementById('connect-btn');
+        this.disconnectBtn = document.getElementById('disconnect-btn');
+        this.toggleModeBtn = document.getElementById('toggle-mode-btn');
+        
+        // Message elements
+        this.messageInput = document.getElementById('message-input');
+        this.sendBtn = document.getElementById('send-btn');
+        this.messagesContainer = document.getElementById('messages-container');
+        
+        // Status elements
+        this.statusBadge = document.getElementById('status-badge');
+        this.modeBadge = document.getElementById('mode-badge');
+        this.localAddress = document.getElementById('local-address');
+        this.remoteAddress = document.getElementById('remote-address');
+    }
 
-// Helper functions
-function parseAddress(address) {
-    const parts = address.split(':');
-    if (parts.length === 2) {
-        return {
-            ip: parts[0].trim(),
-            port: parts[1].trim()
+    bindEvents() {
+        this.connectBtn.addEventListener('click', () => this.connect());
+        this.disconnectBtn.addEventListener('click', () => this.disconnect());
+        this.toggleModeBtn.addEventListener('click', () => this.toggleMode());
+        
+        this.sendBtn.addEventListener('click', () => this.sendMessage());
+        this.messageInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter' && !this.messageInput.disabled) {
+                this.sendMessage();
+            }
+        });
+    }
+
+    updateUI() {
+        // Update connection status
+        if (this.isConnected) {
+            this.statusBadge.textContent = '✅ Connected';
+            this.statusBadge.className = 'status-badge connected';
+            this.messageInput.disabled = false;
+            this.sendBtn.disabled = false;
+            this.connectBtn.disabled = true;
+            this.disconnectBtn.disabled = false;
+        } else {
+            this.statusBadge.textContent = '⚠️ Disconnected';
+            this.statusBadge.className = 'status-badge disconnected';
+            this.messageInput.disabled = true;
+            this.sendBtn.disabled = true;
+            this.connectBtn.disabled = false;
+            this.disconnectBtn.disabled = true;
+        }
+        
+        // Update mode
+        this.modeBadge.textContent = `Mode: ${this.isSender ? 'Sender' : 'Receiver'}`;
+        this.toggleModeBtn.textContent = `Switch to ${this.isSender ? 'Receiver' : 'Sender'} Mode`;
+    }
+
+    addMessage(content, type = 'system', sender = '') {
+        const messageDiv = document.createElement('div');
+        messageDiv.className = `message ${type}`;
+        
+        if (type === 'system') {
+            messageDiv.innerHTML = `<span class="system-text">${content}</span>`;
+        } else {
+            const timestamp = new Date().toLocaleTimeString();
+            messageDiv.innerHTML = `
+                <div class="message-header">
+                    <span class="sender">${sender}</span>
+                    <span class="timestamp">${timestamp}</span>
+                </div>
+                <div class="message-content">${content}</div>
+            `;
+        }
+        
+        this.messagesContainer.appendChild(messageDiv);
+        this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
+    }
+
+    async connect() {
+        this.localUsername = this.nameInput.value.trim();
+        this.targetAddress = this.targetAddressInput.value.trim();
+        
+        if (!this.localUsername || !this.targetAddress) {
+            this.addMessage('Please enter your name and target address', 'system');
+            return;
+        }
+        
+        try {
+            this.addMessage('Connecting to signaling server...', 'system');
+            await this.connectToSignalingServer();
+            await this.initializeWebRTC();
+            
+            if (this.isSender) {
+                this.addMessage('Creating offer as sender...', 'system');
+                await this.createOffer();
+            } else {
+                this.addMessage('Waiting for offer as receiver...', 'system');
+            }
+            
+        } catch (error) {
+            console.error('Connection failed:', error);
+            this.addMessage(`Connection failed: ${error.message}`, 'system');
+        }
+    }
+
+    connectToSignalingServer() {
+        return new Promise((resolve, reject) => {
+            this.ws = new WebSocket(this.signalingServerUrl);
+            
+            this.ws.onopen = () => {
+                console.log('Connected to signaling server');
+                this.addMessage('Connected to signaling server', 'system');
+                
+                // Register with the signaling server
+                this.ws.send(JSON.stringify({
+                    type: 'register',
+                    username: this.localUsername,
+                    targetAddress: this.targetAddress,
+                    mode: this.isSender ? 'sender' : 'receiver'
+                }));
+                
+                resolve();
+            };
+            
+            this.ws.onmessage = (event) => this.handleSignalingMessage(JSON.parse(event.data));
+            
+            this.ws.onerror = (error) => {
+                console.error('WebSocket error:', error);
+                reject(new Error('Failed to connect to signaling server'));
+            };
+            
+            this.ws.onclose = () => {
+                console.log('Disconnected from signaling server');
+                this.addMessage('Disconnected from signaling server', 'system');
+            };
+        });
+    }
+
+    async initializeWebRTC() {
+        const config = {
+            iceServers: [
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:stun1.l.google.com:19302' }
+            ]
+        };
+        
+        this.pc = new RTCPeerConnection(config);
+        
+        // Handle ICE candidates
+        this.pc.onicecandidate = (event) => {
+            if (event.candidate) {
+                console.log('ICE candidate:', event.candidate);
+                this.ws.send(JSON.stringify({
+                    type: 'ice-candidate',
+                    candidate: event.candidate,
+                    targetAddress: this.targetAddress
+                }));
+            }
+        };
+        
+        // Handle connection state changes
+        this.pc.onconnectionstatechange = () => {
+            console.log('Connection state:', this.pc.connectionState);
+            this.addMessage(`Connection state: ${this.pc.connectionState}`, 'system');
+            
+            if (this.pc.connectionState === 'connected') {
+                this.isConnected = true;
+                this.updateUI();
+                this.localAddress.textContent = `${this.localUsername}@${this.targetAddress}`;
+                this.remoteAddress.textContent = 'Connected';
+                this.addMessage('WebRTC connection established! You can now send messages.', 'system');
+            } else if (this.pc.connectionState === 'disconnected' || this.pc.connectionState === 'failed') {
+                this.isConnected = false;
+                this.updateUI();
+            }
+        };
+        
+        // Handle incoming data channel (for receiver)
+        this.pc.ondatachannel = (event) => {
+            const channel = event.channel;
+            this.setupDataChannel(channel);
+        };
+        
+        // Create data channel (for sender)
+        if (this.isSender) {
+            this.dataChannel = this.pc.createDataChannel('messages', {
+                ordered: true
+            });
+            this.setupDataChannel(this.dataChannel);
+        }
+    }
+
+    setupDataChannel(channel) {
+        this.dataChannel = channel;
+        
+        channel.onopen = () => {
+            console.log('Data channel opened');
+            this.addMessage('Data channel opened - ready to send messages!', 'system');
+            this.isConnected = true;
+            this.updateUI();
+        };
+        
+        channel.onmessage = (event) => {
+            console.log('Received message:', event.data);
+            const data = JSON.parse(event.data);
+            this.addMessage(data.content, 'received', data.sender);
+        };
+        
+        channel.onclose = () => {
+            console.log('Data channel closed');
+            this.addMessage('Data channel closed', 'system');
+            this.isConnected = false;
+            this.updateUI();
+        };
+        
+        channel.onerror = (error) => {
+            console.error('Data channel error:', error);
+            this.addMessage('Data channel error', 'system');
         };
     }
-    return null;
-}
 
-function validateIP(ip) {
-    const ipRegex = /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
-    return ipRegex.test(ip) || ip === 'localhost' || ip === '127.0.0.1';
-}
-
-function validatePort(port) {
-    const portNum = parseInt(port);
-    return !isNaN(portNum) && portNum > 0 && portNum <= 65535;
-}
-
-function addMessage(sender, content, type = 'received') {
-    const messageDiv = document.createElement('div');
-    messageDiv.className = `message message-${type}`;
-    
-    if (type !== 'system') {
-        const senderDiv = document.createElement('div');
-        senderDiv.className = 'message-sender';
-        senderDiv.textContent = sender;
-        messageDiv.appendChild(senderDiv);
-    }
-    
-    const contentDiv = document.createElement('div');
-    contentDiv.className = 'message-content';
-    contentDiv.textContent = content;
-    messageDiv.appendChild(contentDiv);
-    
-    const timeDiv = document.createElement('div');
-    timeDiv.className = 'message-time';
-    timeDiv.textContent = new Date().toLocaleTimeString();
-    messageDiv.appendChild(timeDiv);
-    
-    messagesContainer.appendChild(messageDiv);
-    messagesContainer.scrollTop = messagesContainer.scrollHeight;
-}
-
-function addSystemMessage(content) {
-    const messageDiv = document.createElement('div');
-    messageDiv.className = 'system-message';
-    messageDiv.textContent = content;
-    messagesContainer.appendChild(messageDiv);
-    messagesContainer.scrollTop = messagesContainer.scrollHeight;
-}
-
-function updateUI() {
-    statusBadge.textContent = isConnected ? '✅ Connected' : '⚠️ Disconnected';
-    statusBadge.className = `status-badge ${isConnected ? 'connected' : ''}`;
-    
-    modeBadge.textContent = `Mode: ${currentMode.charAt(0).toUpperCase() + currentMode.slice(1)}`;
-    
-    connectBtn.disabled = isConnected;
-    disconnectBtn.disabled = !isConnected;
-    
-    nameInput.disabled = isConnected;
-    targetAddressInput.disabled = isConnected;
-    
-    messageInput.disabled = !isConnected;
-    sendBtn.disabled = !isConnected;
-    
-    toggleModeBtn.textContent = `Switch to ${currentMode === 'sender' ? 'Receiver' : 'Sender'} Mode`;
-    
-    if (currentMode === 'receiver') {
-        targetAddressInput.placeholder = 'Not required in receiver mode';
-        targetAddressInput.style.opacity = '0.5';
-    } else {
-        targetAddressInput.placeholder = '127.0.0.1:8080';
-        targetAddressInput.style.opacity = '1';
-    }
-}
-
-function setupPeerConnection() {
-    console.log('Setting up peer connection...');
-    
-    localConnection = new RTCPeerConnection({
-        iceServers: [
-            { urls: 'stun:stun.l.google.com:19302' },
-            { urls: 'stun:stun1.l.google.com:19302' },
-            { urls: 'stun:stun2.l.google.com:19302' }
-        ]
-    });
-
-    localConnection.onicecandidate = (event) => {
-        if (event.candidate && ws && ws.readyState === WebSocket.OPEN) {
-            console.log('Sending ICE candidate');
-            ws.send(JSON.stringify({
-                type: 'ice-candidate',
-                candidate: event.candidate,
-                targetAddress: targetAddress,
-                senderName: userName
-            }));
-        }
-    };
-
-    localConnection.onconnectionstatechange = () => {
-        const state = localConnection.connectionState;
-        console.log('Connection state:', state);
+    async createOffer() {
+        const offer = await this.pc.createOffer();
+        await this.pc.setLocalDescription(offer);
         
-        if (state === 'connected') {
-            isConnected = true;
-            addSystemMessage('P2P connection established successfully!');
-            updateUI();
-        } else if (state === 'disconnected' || state === 'failed' || state === 'closed') {
-            if (state === 'failed') {
-                addSystemMessage('Connection failed. Please try again.');
-                handleDisconnect();
-            }
-        }
-    };
-
-    localConnection.ondatachannel = (event) => {
-        console.log('Data channel received');
-        dataChannel = event.channel;
-        setupDataChannel();
-    };
-
-    // If sender, create data channel
-    if (currentMode === 'sender') {
-        dataChannel = localConnection.createDataChannel('chat', {
-            ordered: true
-        });
-        setupDataChannel();
-    }
-}
-
-function setupDataChannel() {
-    if (!dataChannel) return;
-    
-    console.log('Setting up data channel...');
-
-    dataChannel.onopen = () => {
-        console.log('Data channel opened');
-        addSystemMessage('Ready to send messages!');
-    };
-
-    dataChannel.onmessage = (event) => {
-        console.log('Received message:', event.data);
-        try {
-            const data = JSON.parse(event.data);
-            addMessage(data.sender, data.content, 'received');
-        } catch (e) {
-            addMessage('Remote', event.data, 'received');
-        }
-    };
-
-    dataChannel.onclose = () => {
-        console.log('Data channel closed');
-        addSystemMessage('Message channel closed');
-    };
-
-    dataChannel.onerror = (error) => {
-        console.error('Data Channel Error:', error);
-        addSystemMessage('Error in message channel');
-    };
-}
-
-function connectToSignalingServer() {
-    // Use a reliable signaling server
-    const wsUrl = 'wss://webrtc-backend-wd3d.onrender.com';
-    ws = new WebSocket(wsUrl);
-
-    ws.onopen = () => {
-        console.log('Connected to signaling server');
-        addSystemMessage('Connected to signaling server');
-        
-        // Create room based on target address or generate one for receiver
-        const roomId = currentMode === 'sender' ? targetAddress : `receiver_${Date.now()}`;
-        
-        ws.send(JSON.stringify({
-            type: 'join',
-            room: roomId,
-            name: userName,
-            mode: currentMode,
-            targetAddress: currentMode === 'sender' ? targetAddress : null
-        }));
-        
-        setupPeerConnection();
-        
-        // Update UI with connection info
-        localAddressDisplay.textContent = currentMode === 'receiver' ? `Waiting on room: ${roomId}` : 'Connecting...';
-        remoteAddressDisplay.textContent = currentMode === 'sender' ? targetAddress : 'Waiting for sender...';
-    };
-
-    ws.onmessage = async (event) => {
-        try {
-            const message = JSON.parse(event.data);
-            await handleSignalingMessage(message);
-        } catch (error) {
-            console.error('Error handling signaling message:', error);
-        }
-    };
-
-    ws.onclose = () => {
-        console.log('Signaling server disconnected');
-        addSystemMessage('Signaling server disconnected');
-    };
-
-    ws.onerror = (error) => {
-        console.error('WebSocket error:', error);
-        addSystemMessage('Failed to connect to signaling server');
-    };
-}
-
-async function handleSignalingMessage(message) {
-    console.log('Received signaling message:', message);
-    
-    switch (message.type) {
-        case 'offer':
-            if (currentMode === 'receiver') {
-                await handleOffer(message.offer, message.senderName);
-            }
-            break;
-        case 'answer':
-            if (currentMode === 'sender') {
-                await handleAnswer(message.answer);
-            }
-            break;
-        case 'ice-candidate':
-            await handleIceCandidate(message.candidate);
-            break;
-        case 'user-joined':
-            if (currentMode === 'sender' && message.mode === 'receiver') {
-                addSystemMessage('Receiver found, establishing connection...');
-                await createOffer();
-            }
-            break;
-        case 'error':
-            addSystemMessage(`Error: ${message.message}`);
-            break;
-    }
-}
-
-async function createOffer() {
-    try {
-        console.log('Creating offer...');
-        const offer = await localConnection.createOffer();
-        await localConnection.setLocalDescription(offer);
-        
-        ws.send(JSON.stringify({
+        this.ws.send(JSON.stringify({
             type: 'offer',
             offer: offer,
-            targetAddress: targetAddress,
-            senderName: userName
-        }));
-    } catch (error) {
-        console.error('Error creating offer:', error);
-        addSystemMessage('Failed to create connection offer');
-    }
-}
-
-async function handleOffer(offer, senderName) {
-    try {
-        console.log('Handling offer from:', senderName);
-        await localConnection.setRemoteDescription(offer);
-        const answer = await localConnection.createAnswer();
-        await localConnection.setLocalDescription(answer);
-        
-        ws.send(JSON.stringify({
-            type: 'answer',
-            answer: answer,
-            targetAddress: targetAddress,
-            receiverName: userName
+            targetAddress: this.targetAddress
         }));
         
-        addSystemMessage(`Connection offer received from ${senderName}`);
-    } catch (error) {
-        console.error('Error handling offer:', error);
-        addSystemMessage('Failed to handle connection offer');
-    }
-}
-
-async function handleAnswer(answer) {
-    try {
-        console.log('Handling answer...');
-        await localConnection.setRemoteDescription(answer);
-        addSystemMessage('Connection answer received');
-    } catch (error) {
-        console.error('Error handling answer:', error);
-        addSystemMessage('Failed to handle connection answer');
-    }
-}
-
-async function handleIceCandidate(candidate) {
-    try {
-        await localConnection.addIceCandidate(candidate);
-        console.log('ICE candidate added');
-    } catch (error) {
-        console.error('Error adding ICE candidate:', error);
-    }
-}
-
-// Event handlers
-function handleConnect() {
-    userName = nameInput.value.trim();
-    
-    if (!userName) {
-        addSystemMessage('Please enter your name');
-        return;
+        console.log('Offer sent');
+        this.addMessage('Offer sent to peer', 'system');
     }
 
-    if (currentMode === 'sender') {
-        targetAddress = targetAddressInput.value.trim();
+    async handleSignalingMessage(message) {
+        console.log('Received signaling message:', message);
         
-        if (!targetAddress) {
-            addSystemMessage('Please enter target address (IP:Port)');
+        switch (message.type) {
+            case 'offer':
+                if (!this.isSender) {
+                    await this.pc.setRemoteDescription(message.offer);
+                    const answer = await this.pc.createAnswer();
+                    await this.pc.setLocalDescription(answer);
+                    
+                    this.ws.send(JSON.stringify({
+                        type: 'answer',
+                        answer: answer,
+                        targetAddress: this.targetAddress
+                    }));
+                    
+                    this.addMessage('Answer sent to peer', 'system');
+                }
+                break;
+                
+            case 'answer':
+                if (this.isSender) {
+                    await this.pc.setRemoteDescription(message.answer);
+                    this.addMessage('Answer received from peer', 'system');
+                }
+                break;
+                
+            case 'ice-candidate':
+                await this.pc.addIceCandidate(message.candidate);
+                console.log('ICE candidate added');
+                break;
+                
+            case 'error':
+                this.addMessage(`Error: ${message.message}`, 'system');
+                break;
+        }
+    }
+
+    sendMessage() {
+        const content = this.messageInput.value.trim();
+        if (!content || !this.dataChannel || this.dataChannel.readyState !== 'open') {
             return;
         }
+        
+        const message = {
+            sender: this.localUsername,
+            content: content,
+            timestamp: new Date().toISOString()
+        };
+        
+        this.dataChannel.send(JSON.stringify(message));
+        this.addMessage(content, 'sent', this.localUsername);
+        this.messageInput.value = '';
+    }
 
-        const parsed = parseAddress(targetAddress);
-        if (!parsed) {
-            addSystemMessage('Invalid address format. Use IP:PORT (e.g., 127.0.0.1:8080)');
+    toggleMode() {
+        if (this.isConnected) {
+            this.addMessage('Cannot change mode while connected', 'system');
             return;
         }
+        
+        this.isSender = !this.isSender;
+        this.updateUI();
+        this.addMessage(`Switched to ${this.isSender ? 'Sender' : 'Receiver'} mode`, 'system');
+    }
 
-        if (!validateIP(parsed.ip) || !validatePort(parsed.port)) {
-            addSystemMessage('Invalid IP address or port');
-            return;
+    disconnect() {
+        if (this.dataChannel) {
+            this.dataChannel.close();
+            this.dataChannel = null;
         }
-    }
-
-    addSystemMessage(`Connecting as ${currentMode}...`);
-    connectToSignalingServer();
-}
-
-function handleDisconnect() {
-    if (dataChannel) {
-        dataChannel.close();
-        dataChannel = null;
-    }
-    
-    if (localConnection) {
-        localConnection.close();
-        localConnection = null;
-    }
-    
-    if (ws) {
-        ws.close();
-        ws = null;
-    }
-    
-    isConnected = false;
-    localAddressDisplay.textContent = 'Not connected';
-    remoteAddressDisplay.textContent = 'Not connected';
-    
-    addSystemMessage('Disconnected');
-    updateUI();
-}
-
-function toggleMode() {
-    if (isConnected) {
-        handleDisconnect();
-    }
-    
-    currentMode = currentMode === 'sender' ? 'receiver' : 'sender';
-    targetAddressInput.value = '';
-    updateUI();
-    
-    addSystemMessage(`Switched to ${currentMode} mode`);
-}
-
-function sendMessage() {
-    const content = messageInput.value.trim();
-    if (!content || !dataChannel || dataChannel.readyState !== 'open') {
-        if (!dataChannel || dataChannel.readyState !== 'open') {
-            addSystemMessage('Connection not ready. Please wait or reconnect.');
+        
+        if (this.pc) {
+            this.pc.close();
+            this.pc = null;
         }
-        return;
-    }
-
-    const messageData = {
-        sender: userName,
-        content: content,
-        timestamp: new Date().toISOString()
-    };
-    
-    try {
-        dataChannel.send(JSON.stringify(messageData));
-        addMessage(userName, content, 'sent');
-        messageInput.value = '';
-    } catch (error) {
-        console.error('Error sending message:', error);
-        addSystemMessage('Failed to send message');
+        
+        if (this.ws) {
+            this.ws.close();
+            this.ws = null;
+        }
+        
+        this.isConnected = false;
+        this.updateUI();
+        this.localAddress.textContent = 'Not connected';
+        this.remoteAddress.textContent = 'Not connected';
+        this.addMessage('Disconnected', 'system');
     }
 }
 
-console.log('TCP/IP Messenger initialized');
+// Initialize the application when the page loads
+document.addEventListener('DOMContentLoaded', () => {
+    window.messenger = new WebRTCMessenger();
+});
