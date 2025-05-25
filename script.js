@@ -1,439 +1,435 @@
 
-class WebRTCTerminal {
-    constructor() {
-        this.signalingWs = null;
-        this.peerConnection = null;
-        this.dataChannel = null;
-        this.isConnected = false;
-        this.localAddress = null;
-        this.targetAddress = null;
-        this.username = null;
-        this.mode = 'sender';
-        
-        // STUN servers for NAT traversal
-        this.iceServers = [
-            { urls: 'stun:stun.l.google.com:19302' },
-            { urls: 'stun:stun1.l.google.com:19302' }
-        ];
-        
-        this.initializeElements();
-        this.setupEventListeners();
-        this.log('System initialized', 'info');
-    }
+// Global variables
+let localConnection = null;
+let dataChannel = null;
+let ws = null;
+let isConnected = false;
+let currentMode = 'sender'; // 'sender' or 'receiver'
+let userName = '';
+let targetAddress = '';
 
-    initializeElements() {
-        // Form elements
-        this.usernameInput = document.getElementById('username');
-        this.localPortInput = document.getElementById('localPort');
-        this.targetAddressInput = document.getElementById('targetAddress');
-        this.modeSelect = document.getElementById('mode');
-        
-        // Buttons
-        this.connectBtn = document.getElementById('connectBtn');
-        this.disconnectBtn = document.getElementById('disconnectBtn');
-        this.sendBtn = document.getElementById('sendBtn');
-        this.clearLogsBtn = document.getElementById('clearLogsBtn');
-        
-        // Status elements
-        this.statusDot = document.getElementById('statusDot');
-        this.statusText = document.getElementById('statusText');
-        this.signalingStatus = document.getElementById('signalingStatus');
-        this.webrtcStatus = document.getElementById('webrtcStatus');
-        this.dataChannelStatus = document.getElementById('dataChannelStatus');
-        
-        // Message elements
-        this.messageInput = document.getElementById('messageInput');
-        this.messagesContainer = document.getElementById('messages');
-        this.logsContainer = document.getElementById('logs');
-    }
+// DOM elements
+const statusBadge = document.getElementById('status-badge');
+const modeBadge = document.getElementById('mode-badge');
+const connectBtn = document.getElementById('connect-btn');
+const disconnectBtn = document.getElementById('disconnect-btn');
+const toggleModeBtn = document.getElementById('toggle-mode-btn');
+const nameInput = document.getElementById('name');
+const targetAddressInput = document.getElementById('target-address');
+const messageInput = document.getElementById('message-input');
+const sendBtn = document.getElementById('send-btn');
+const messagesContainer = document.getElementById('messages-container');
+const localAddressDisplay = document.getElementById('local-address');
+const remoteAddressDisplay = document.getElementById('remote-address');
 
-    setupEventListeners() {
-        this.connectBtn.addEventListener('click', () => this.connect());
-        this.disconnectBtn.addEventListener('click', () => this.disconnect());
-        this.sendBtn.addEventListener('click', () => this.sendMessage());
-        this.clearLogsBtn.addEventListener('click', () => this.clearLogs());
-        
-        this.messageInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter' && !this.sendBtn.disabled) {
-                this.sendMessage();
-            }
-        });
-        
-        this.modeSelect.addEventListener('change', (e) => {
-            this.mode = e.target.value;
-            this.log(`Mode changed to: ${this.mode}`, 'info');
-        });
+// Event listeners
+connectBtn.addEventListener('click', handleConnect);
+disconnectBtn.addEventListener('click', handleDisconnect);
+toggleModeBtn.addEventListener('click', toggleMode);
+sendBtn.addEventListener('click', sendMessage);
+messageInput.addEventListener('keypress', function(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendMessage();
     }
+});
 
-    async connect() {
-        try {
-            // Validate inputs
-            if (!this.validateInputs()) {
-                return;
-            }
-            
-            this.username = this.usernameInput.value.trim();
-            this.localAddress = `127.0.0.1:${this.localPortInput.value}`;
-            this.targetAddress = this.targetAddressInput.value.trim();
-            this.mode = this.modeSelect.value;
-            
-            this.log(`Attempting to connect as ${this.mode}`, 'info');
-            this.log(`Local: ${this.localAddress}, Target: ${this.targetAddress}`, 'info');
-            
-            this.updateStatus('connecting', 'Connecting...');
-            this.connectBtn.disabled = true;
-            
-            // Connect to signaling server
-            await this.connectToSignalingServer();
-            
-        } catch (error) {
-            this.log(`Connection failed: ${error.message}`, 'error');
-            this.updateStatus('disconnected', 'Connection Failed');
-            this.connectBtn.disabled = false;
-        }
-    }
+// Initialize
+updateUI();
 
-    validateInputs() {
-        const username = this.usernameInput.value.trim();
-        const localPort = this.localPortInput.value;
-        const targetAddress = this.targetAddressInput.value.trim();
-        
-        if (!username) {
-            this.log('Username is required', 'error');
-            return false;
-        }
-        
-        if (!localPort || localPort < 1024 || localPort > 65535) {
-            this.log('Valid local port (1024-65535) is required', 'error');
-            return false;
-        }
-        
-        if (!targetAddress || !targetAddress.match(/^\d+\.\d+\.\d+\.\d+:\d+$/)) {
-            this.log('Valid target address (IP:PORT) is required', 'error');
-            return false;
-        }
-        
-        return true;
-    }
-
-    connectToSignalingServer() {
-        return new Promise((resolve, reject) => {
-            // Use your deployed Render signaling server URL here
-            const signalingUrl = 'wss://webrtc-backend-wd3d.onrender.com';
-            // For local testing: const signalingUrl = 'ws://localhost:3000';
-            
-            this.signalingWs = new WebSocket(signalingUrl);
-            
-            this.signalingWs.onopen = () => {
-                this.log('Connected to signaling server', 'success');
-                this.signalingStatus.textContent = 'Connected';
-                
-                // Register with signaling server
-                this.signalingWs.send(JSON.stringify({
-                    type: 'register',
-                    localAddress: this.localAddress,
-                    targetAddress: this.targetAddress,
-                    username: this.username,
-                    mode: this.mode
-                }));
-                
-                resolve();
-            };
-            
-            this.signalingWs.onmessage = (event) => {
-                this.handleSignalingMessage(JSON.parse(event.data));
-            };
-            
-            this.signalingWs.onclose = () => {
-                this.log('Signaling server disconnected', 'warning');
-                this.signalingStatus.textContent = 'Disconnected';
-            };
-            
-            this.signalingWs.onerror = (error) => {
-                this.log('Signaling server error', 'error');
-                reject(new Error('Failed to connect to signaling server'));
-            };
-        });
-    }
-
-    async handleSignalingMessage(message) {
-        this.log(`Signaling message: ${message.type}`, 'info');
-        
-        switch (message.type) {
-            case 'registered':
-                this.log('Successfully registered with signaling server', 'success');
-                await this.initializeWebRTC();
-                break;
-                
-            case 'peer-found':
-                this.log(`Peer found: ${message.peerAddress}`, 'success');
-                if (this.mode === 'sender') {
-                    await this.createOffer();
-                }
-                break;
-                
-            case 'offer':
-                this.log('Received offer from peer', 'info');
-                await this.handleOffer(message.offer);
-                break;
-                
-            case 'answer':
-                this.log('Received answer from peer', 'info');
-                await this.handleAnswer(message.answer);
-                break;
-                
-            case 'ice-candidate':
-                this.log('Received ICE candidate', 'info');
-                await this.handleIceCandidate(message.candidate);
-                break;
-                
-            case 'peer-disconnected':
-                this.log('Peer disconnected', 'warning');
-                this.disconnect();
-                break;
-                
-            case 'error':
-                this.log(`Signaling error: ${message.message}`, 'error');
-                break;
-        }
-    }
-
-    async initializeWebRTC() {
-        try {
-            this.peerConnection = new RTCPeerConnection({
-                iceServers: this.iceServers
-            });
-            
-            // Handle ICE candidates
-            this.peerConnection.onicecandidate = (event) => {
-                if (event.candidate) {
-                    this.log('Sending ICE candidate', 'info');
-                    this.signalingWs.send(JSON.stringify({
-                        type: 'ice-candidate',
-                        candidate: event.candidate,
-                        targetAddress: this.targetAddress
-                    }));
-                }
-            };
-            
-            // Handle connection state changes
-            this.peerConnection.onconnectionstatechange = () => {
-                const state = this.peerConnection.connectionState;
-                this.log(`WebRTC connection state: ${state}`, 'info');
-                this.webrtcStatus.textContent = state;
-                
-                if (state === 'connected') {
-                    this.isConnected = true;
-                    this.updateStatus('connected', 'Connected');
-                    this.disconnectBtn.disabled = false;
-                } else if (state === 'disconnected' || state === 'failed') {
-                    this.isConnected = false;
-                    this.updateStatus('disconnected', 'Disconnected');
-                }
-            };
-            
-            // Handle incoming data channel (for receiver)
-            this.peerConnection.ondatachannel = (event) => {
-                this.setupDataChannel(event.channel);
-            };
-            
-            // Create data channel (for sender)
-            if (this.mode === 'sender') {
-                this.dataChannel = this.peerConnection.createDataChannel('messages', {
-                    ordered: true
-                });
-                this.setupDataChannel(this.dataChannel);
-            }
-            
-            this.log('WebRTC peer connection initialized', 'success');
-            
-        } catch (error) {
-            this.log(`WebRTC initialization failed: ${error.message}`, 'error');
-            throw error;
-        }
-    }
-
-    setupDataChannel(channel) {
-        this.dataChannel = channel;
-        
-        this.dataChannel.onopen = () => {
-            this.log('Data channel opened', 'success');
-            this.dataChannelStatus.textContent = 'Open';
-            this.messageInput.disabled = false;
-            this.sendBtn.disabled = false;
-            this.addMessage('Data channel established. You can now send messages!', 'system');
-        };
-        
-        this.dataChannel.onclose = () => {
-            this.log('Data channel closed', 'warning');
-            this.dataChannelStatus.textContent = 'Closed';
-            this.messageInput.disabled = true;
-            this.sendBtn.disabled = true;
-        };
-        
-        this.dataChannel.onmessage = (event) => {
-            const data = JSON.parse(event.data);
-            if (data.username !== this.username) { // No echoing
-                this.addMessage(`${data.username}: ${data.message}`, 'received');
-                this.log('Message received via data channel', 'info');
-            }
-        };
-        
-        this.dataChannel.onerror = (error) => {
-            this.log(`Data channel error: ${error}`, 'error');
+// Helper functions
+function parseAddress(address) {
+    const parts = address.split(':');
+    if (parts.length === 2) {
+        return {
+            ip: parts[0].trim(),
+            port: parts[1].trim()
         };
     }
+    return null;
+}
 
-    async createOffer() {
-        try {
-            const offer = await this.peerConnection.createOffer();
-            await this.peerConnection.setLocalDescription(offer);
-            
-            this.log('Created and set local offer', 'info');
-            
-            this.signalingWs.send(JSON.stringify({
-                type: 'offer',
-                offer: offer,
-                targetAddress: this.targetAddress
-            }));
-            
-        } catch (error) {
-            this.log(`Failed to create offer: ${error.message}`, 'error');
-        }
+function validateIP(ip) {
+    const ipRegex = /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
+    return ipRegex.test(ip) || ip === 'localhost' || ip === '127.0.0.1';
+}
+
+function validatePort(port) {
+    const portNum = parseInt(port);
+    return !isNaN(portNum) && portNum > 0 && portNum <= 65535;
+}
+
+function addMessage(sender, content, type = 'received') {
+    const messageDiv = document.createElement('div');
+    messageDiv.className = `message message-${type}`;
+    
+    if (type !== 'system') {
+        const senderDiv = document.createElement('div');
+        senderDiv.className = 'message-sender';
+        senderDiv.textContent = sender;
+        messageDiv.appendChild(senderDiv);
     }
+    
+    const contentDiv = document.createElement('div');
+    contentDiv.className = 'message-content';
+    contentDiv.textContent = content;
+    messageDiv.appendChild(contentDiv);
+    
+    const timeDiv = document.createElement('div');
+    timeDiv.className = 'message-time';
+    timeDiv.textContent = new Date().toLocaleTimeString();
+    messageDiv.appendChild(timeDiv);
+    
+    messagesContainer.appendChild(messageDiv);
+    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+}
 
-    async handleOffer(offer) {
-        try {
-            await this.peerConnection.setRemoteDescription(offer);
-            const answer = await this.peerConnection.createAnswer();
-            await this.peerConnection.setLocalDescription(answer);
-            
-            this.log('Created and set local answer', 'info');
-            
-            this.signalingWs.send(JSON.stringify({
-                type: 'answer',
-                answer: answer,
-                targetAddress: this.targetAddress
-            }));
-            
-        } catch (error) {
-            this.log(`Failed to handle offer: ${error.message}`, 'error');
-        }
-    }
+function addSystemMessage(content) {
+    const messageDiv = document.createElement('div');
+    messageDiv.className = 'system-message';
+    messageDiv.textContent = content;
+    messagesContainer.appendChild(messageDiv);
+    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+}
 
-    async handleAnswer(answer) {
-        try {
-            await this.peerConnection.setRemoteDescription(answer);
-            this.log('Set remote answer', 'success');
-        } catch (error) {
-            this.log(`Failed to handle answer: ${error.message}`, 'error');
-        }
-    }
-
-    async handleIceCandidate(candidate) {
-        try {
-            await this.peerConnection.addIceCandidate(candidate);
-            this.log('Added ICE candidate', 'info');
-        } catch (error) {
-            this.log(`Failed to add ICE candidate: ${error.message}`, 'error');
-        }
-    }
-
-    sendMessage() {
-        const message = this.messageInput.value.trim();
-        if (!message || !this.dataChannel || this.dataChannel.readyState !== 'open') {
-            return;
-        }
-        
-        const messageData = {
-            username: this.username,
-            message: message,
-            timestamp: new Date().toISOString()
-        };
-        
-        this.dataChannel.send(JSON.stringify(messageData));
-        this.addMessage(`You: ${message}`, 'sent');
-        this.messageInput.value = '';
-        this.log('Message sent via data channel', 'info');
-    }
-
-    addMessage(text, type) {
-        const messageDiv = document.createElement('div');
-        messageDiv.className = `message ${type}`;
-        
-        const timeDiv = document.createElement('div');
-        timeDiv.className = 'message-time';
-        timeDiv.textContent = new Date().toLocaleTimeString();
-        
-        const contentDiv = document.createElement('div');
-        contentDiv.className = 'message-content';
-        contentDiv.textContent = text;
-        
-        messageDiv.appendChild(timeDiv);
-        messageDiv.appendChild(contentDiv);
-        
-        this.messagesContainer.appendChild(messageDiv);
-        this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
-    }
-
-    disconnect() {
-        this.log('Disconnecting...', 'info');
-        
-        if (this.dataChannel) {
-            this.dataChannel.close();
-            this.dataChannel = null;
-        }
-        
-        if (this.peerConnection) {
-            this.peerConnection.close();
-            this.peerConnection = null;
-        }
-        
-        if (this.signalingWs) {
-            this.signalingWs.close();
-            this.signalingWs = null;
-        }
-        
-        this.isConnected = false;
-        this.updateStatus('disconnected', 'Disconnected');
-        this.connectBtn.disabled = false;
-        this.disconnectBtn.disabled = true;
-        this.messageInput.disabled = true;
-        this.sendBtn.disabled = true;
-        
-        this.signalingStatus.textContent = 'Disconnected';
-        this.webrtcStatus.textContent = 'Disconnected';
-        this.dataChannelStatus.textContent = 'Closed';
-        
-        this.log('Disconnected successfully', 'info');
-    }
-
-    updateStatus(status, text) {
-        this.statusDot.className = `status-dot ${status}`;
-        this.statusText.textContent = text;
-    }
-
-    log(message, type = 'info') {
-        const timestamp = new Date().toLocaleTimeString();
-        const logEntry = document.createElement('div');
-        logEntry.className = `log-entry ${type}`;
-        
-        logEntry.innerHTML = `<span class="log-time">[${timestamp}]</span>${message}`;
-        
-        this.logsContainer.appendChild(logEntry);
-        this.logsContainer.scrollTop = this.logsContainer.scrollHeight;
-        
-        // Also log to browser console
-        console.log(`[WebRTC P2P] ${message}`);
-    }
-
-    clearLogs() {
-        this.logsContainer.innerHTML = '';
-        this.log('Logs cleared', 'info');
+function updateUI() {
+    statusBadge.textContent = isConnected ? '✅ Connected' : '⚠️ Disconnected';
+    statusBadge.className = `status-badge ${isConnected ? 'connected' : ''}`;
+    
+    modeBadge.textContent = `Mode: ${currentMode.charAt(0).toUpperCase() + currentMode.slice(1)}`;
+    
+    connectBtn.disabled = isConnected;
+    disconnectBtn.disabled = !isConnected;
+    
+    nameInput.disabled = isConnected;
+    targetAddressInput.disabled = isConnected;
+    
+    messageInput.disabled = !isConnected;
+    sendBtn.disabled = !isConnected;
+    
+    toggleModeBtn.textContent = `Switch to ${currentMode === 'sender' ? 'Receiver' : 'Sender'} Mode`;
+    
+    if (currentMode === 'receiver') {
+        targetAddressInput.placeholder = 'Not required in receiver mode';
+        targetAddressInput.style.opacity = '0.5';
+    } else {
+        targetAddressInput.placeholder = '127.0.0.1:8080';
+        targetAddressInput.style.opacity = '1';
     }
 }
 
-// Initialize the application when the page loads
-document.addEventListener('DOMContentLoaded', () => {
-    new WebRTCTerminal();
-});
+function setupPeerConnection() {
+    console.log('Setting up peer connection...');
+    
+    localConnection = new RTCPeerConnection({
+        iceServers: [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' },
+            { urls: 'stun:stun2.l.google.com:19302' }
+        ]
+    });
+
+    localConnection.onicecandidate = (event) => {
+        if (event.candidate && ws && ws.readyState === WebSocket.OPEN) {
+            console.log('Sending ICE candidate');
+            ws.send(JSON.stringify({
+                type: 'ice-candidate',
+                candidate: event.candidate,
+                targetAddress: targetAddress,
+                senderName: userName
+            }));
+        }
+    };
+
+    localConnection.onconnectionstatechange = () => {
+        const state = localConnection.connectionState;
+        console.log('Connection state:', state);
+        
+        if (state === 'connected') {
+            isConnected = true;
+            addSystemMessage('P2P connection established successfully!');
+            updateUI();
+        } else if (state === 'disconnected' || state === 'failed' || state === 'closed') {
+            if (state === 'failed') {
+                addSystemMessage('Connection failed. Please try again.');
+                handleDisconnect();
+            }
+        }
+    };
+
+    localConnection.ondatachannel = (event) => {
+        console.log('Data channel received');
+        dataChannel = event.channel;
+        setupDataChannel();
+    };
+
+    // If sender, create data channel
+    if (currentMode === 'sender') {
+        dataChannel = localConnection.createDataChannel('chat', {
+            ordered: true
+        });
+        setupDataChannel();
+    }
+}
+
+function setupDataChannel() {
+    if (!dataChannel) return;
+    
+    console.log('Setting up data channel...');
+
+    dataChannel.onopen = () => {
+        console.log('Data channel opened');
+        addSystemMessage('Ready to send messages!');
+    };
+
+    dataChannel.onmessage = (event) => {
+        console.log('Received message:', event.data);
+        try {
+            const data = JSON.parse(event.data);
+            addMessage(data.sender, data.content, 'received');
+        } catch (e) {
+            addMessage('Remote', event.data, 'received');
+        }
+    };
+
+    dataChannel.onclose = () => {
+        console.log('Data channel closed');
+        addSystemMessage('Message channel closed');
+    };
+
+    dataChannel.onerror = (error) => {
+        console.error('Data Channel Error:', error);
+        addSystemMessage('Error in message channel');
+    };
+}
+
+function connectToSignalingServer() {
+    // Use a reliable signaling server
+    const wsUrl = 'wss://webrtc-backend-wd3d.onrender.com';
+    ws = new WebSocket(wsUrl);
+
+    ws.onopen = () => {
+        console.log('Connected to signaling server');
+        addSystemMessage('Connected to signaling server');
+        
+        // Create room based on target address or generate one for receiver
+        const roomId = currentMode === 'sender' ? targetAddress : `receiver_${Date.now()}`;
+        
+        ws.send(JSON.stringify({
+            type: 'join',
+            room: roomId,
+            name: userName,
+            mode: currentMode,
+            targetAddress: currentMode === 'sender' ? targetAddress : null
+        }));
+        
+        setupPeerConnection();
+        
+        // Update UI with connection info
+        localAddressDisplay.textContent = currentMode === 'receiver' ? `Waiting on room: ${roomId}` : 'Connecting...';
+        remoteAddressDisplay.textContent = currentMode === 'sender' ? targetAddress : 'Waiting for sender...';
+    };
+
+    ws.onmessage = async (event) => {
+        try {
+            const message = JSON.parse(event.data);
+            await handleSignalingMessage(message);
+        } catch (error) {
+            console.error('Error handling signaling message:', error);
+        }
+    };
+
+    ws.onclose = () => {
+        console.log('Signaling server disconnected');
+        addSystemMessage('Signaling server disconnected');
+    };
+
+    ws.onerror = (error) => {
+        console.error('WebSocket error:', error);
+        addSystemMessage('Failed to connect to signaling server');
+    };
+}
+
+async function handleSignalingMessage(message) {
+    console.log('Received signaling message:', message);
+    
+    switch (message.type) {
+        case 'offer':
+            if (currentMode === 'receiver') {
+                await handleOffer(message.offer, message.senderName);
+            }
+            break;
+        case 'answer':
+            if (currentMode === 'sender') {
+                await handleAnswer(message.answer);
+            }
+            break;
+        case 'ice-candidate':
+            await handleIceCandidate(message.candidate);
+            break;
+        case 'user-joined':
+            if (currentMode === 'sender' && message.mode === 'receiver') {
+                addSystemMessage('Receiver found, establishing connection...');
+                await createOffer();
+            }
+            break;
+        case 'error':
+            addSystemMessage(`Error: ${message.message}`);
+            break;
+    }
+}
+
+async function createOffer() {
+    try {
+        console.log('Creating offer...');
+        const offer = await localConnection.createOffer();
+        await localConnection.setLocalDescription(offer);
+        
+        ws.send(JSON.stringify({
+            type: 'offer',
+            offer: offer,
+            targetAddress: targetAddress,
+            senderName: userName
+        }));
+    } catch (error) {
+        console.error('Error creating offer:', error);
+        addSystemMessage('Failed to create connection offer');
+    }
+}
+
+async function handleOffer(offer, senderName) {
+    try {
+        console.log('Handling offer from:', senderName);
+        await localConnection.setRemoteDescription(offer);
+        const answer = await localConnection.createAnswer();
+        await localConnection.setLocalDescription(answer);
+        
+        ws.send(JSON.stringify({
+            type: 'answer',
+            answer: answer,
+            targetAddress: targetAddress,
+            receiverName: userName
+        }));
+        
+        addSystemMessage(`Connection offer received from ${senderName}`);
+    } catch (error) {
+        console.error('Error handling offer:', error);
+        addSystemMessage('Failed to handle connection offer');
+    }
+}
+
+async function handleAnswer(answer) {
+    try {
+        console.log('Handling answer...');
+        await localConnection.setRemoteDescription(answer);
+        addSystemMessage('Connection answer received');
+    } catch (error) {
+        console.error('Error handling answer:', error);
+        addSystemMessage('Failed to handle connection answer');
+    }
+}
+
+async function handleIceCandidate(candidate) {
+    try {
+        await localConnection.addIceCandidate(candidate);
+        console.log('ICE candidate added');
+    } catch (error) {
+        console.error('Error adding ICE candidate:', error);
+    }
+}
+
+// Event handlers
+function handleConnect() {
+    userName = nameInput.value.trim();
+    
+    if (!userName) {
+        addSystemMessage('Please enter your name');
+        return;
+    }
+
+    if (currentMode === 'sender') {
+        targetAddress = targetAddressInput.value.trim();
+        
+        if (!targetAddress) {
+            addSystemMessage('Please enter target address (IP:Port)');
+            return;
+        }
+
+        const parsed = parseAddress(targetAddress);
+        if (!parsed) {
+            addSystemMessage('Invalid address format. Use IP:PORT (e.g., 127.0.0.1:8080)');
+            return;
+        }
+
+        if (!validateIP(parsed.ip) || !validatePort(parsed.port)) {
+            addSystemMessage('Invalid IP address or port');
+            return;
+        }
+    }
+
+    addSystemMessage(`Connecting as ${currentMode}...`);
+    connectToSignalingServer();
+}
+
+function handleDisconnect() {
+    if (dataChannel) {
+        dataChannel.close();
+        dataChannel = null;
+    }
+    
+    if (localConnection) {
+        localConnection.close();
+        localConnection = null;
+    }
+    
+    if (ws) {
+        ws.close();
+        ws = null;
+    }
+    
+    isConnected = false;
+    localAddressDisplay.textContent = 'Not connected';
+    remoteAddressDisplay.textContent = 'Not connected';
+    
+    addSystemMessage('Disconnected');
+    updateUI();
+}
+
+function toggleMode() {
+    if (isConnected) {
+        handleDisconnect();
+    }
+    
+    currentMode = currentMode === 'sender' ? 'receiver' : 'sender';
+    targetAddressInput.value = '';
+    updateUI();
+    
+    addSystemMessage(`Switched to ${currentMode} mode`);
+}
+
+function sendMessage() {
+    const content = messageInput.value.trim();
+    if (!content || !dataChannel || dataChannel.readyState !== 'open') {
+        if (!dataChannel || dataChannel.readyState !== 'open') {
+            addSystemMessage('Connection not ready. Please wait or reconnect.');
+        }
+        return;
+    }
+
+    const messageData = {
+        sender: userName,
+        content: content,
+        timestamp: new Date().toISOString()
+    };
+    
+    try {
+        dataChannel.send(JSON.stringify(messageData));
+        addMessage(userName, content, 'sent');
+        messageInput.value = '';
+    } catch (error) {
+        console.error('Error sending message:', error);
+        addSystemMessage('Failed to send message');
+    }
+}
+
+console.log('TCP/IP Messenger initialized');
