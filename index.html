@@ -1,70 +1,58 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>TCP/IP Messenger - Real-time P2P Communication</title>
-  <meta name="description" content="Advanced TCP/IP Messenger with WebRTC support for real-time peer-to-peer communication" />
-  <meta name="author" content="TCP/IP Messenger" />
-  <link rel="stylesheet" href="styles.css" />
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebRTC P2P Messenger</title>
+    <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <div class="container">
-    <header>
-      <h1>TCP/IP Messenger</h1>
-      <div class="status-container">
-        <span class="status-badge disconnected">Disconnected</span>
-        <span class="mode-badge">Mode: <span id="mode-display">Sender</span></span>
-      </div>
-    </header>
+    <div class="container">
+        <header>
+            <h1>🌐 WebRTC P2P Messenger</h1>
+            <div class="status" id="status">Disconnected</div>
+        </header>
 
-    <div class="connection-panel">
-      <div class="input-group">
-        <label for="name">Your Name:</label>
-        <input type="text" id="name" placeholder="Enter your name" />
-      </div>
+        <div class="connection-panel">
+            <h2>Connection Settings</h2>
+            <div class="form-group">
+                <label for="username">Your Name:</label>
+                <input type="text" id="username" placeholder="Enter your name">
+            </div>
+            <div class="form-group">
+                <label for="address">IP:Port (e.g., 127.0.0.1:8080):</label>
+                <input type="text" id="address" placeholder="127.0.0.1:8080" value="127.0.0.1:8080">
+            </div>
+            <div class="controls">
+                <button id="host-btn">Host Connection</button>
+                <button id="join-btn">Join Connection</button>
+                <button id="disconnect-btn" disabled>Disconnect</button>
+            </div>
+        </div>
 
-      <div class="input-group">
-        <label for="local-port">Local Port:</label>
-        <input type="text" id="local-port" placeholder="Enter your local port (e.g. 8080)" />
-      </div>
+        <div class="chat-panel">
+            <div class="messages" id="messages">
+                <div class="system-message">Welcome! Configure connection settings above.</div>
+            </div>
+            <div class="input-panel">
+                <input type="text" id="message-input" placeholder="Type a message..." disabled>
+                <button id="send-btn" disabled>Send</button>
+            </div>
+        </div>
 
-      <div class="input-group target-group">
-        <label for="target-address">Target Address:</label>
-        <input type="text" id="target-address" placeholder="Enter target IP:Port (e.g. 127.0.0.1:8080)" />
-      </div>
-
-      <div class="controls">
-        <button id="connect-btn">Connect</button>
-        <button id="disconnect-btn" disabled>Disconnect</button>
-        <button id="toggle-mode-btn">Switch to Receiver Mode</button>
-      </div>
+        <div class="info-panel">
+            <div class="info-item">
+                <span class="label">Local:</span>
+                <span id="local-info">Not connected</span>
+            </div>
+            <div class="info-item">
+                <span class="label">Remote:</span>
+                <span id="remote-info">Not connected</span>
+            </div>
+        </div>
     </div>
 
-    <div class="chat-panel">
-      <div class="messages-container" id="messages">
-        <div class="system-message">Welcome to TCP/IP Messenger. Connect to start messaging.</div>
-      </div>
-
-      <div class="input-panel">
-        <textarea id="message-input" placeholder="Type your message here..." disabled></textarea>
-        <button id="send-btn" disabled>Send</button>
-      </div>
-    </div>
-
-    <div class="connection-details">
-      <div class="detail-item">
-        <span class="detail-label">Local Address:</span>
-        <span class="detail-value" id="local-address">Not connected</span>
-      </div>
-      <div class="detail-item">
-        <span class="detail-label">Remote Address:</span>
-        <span class="detail-value" id="remote-address">Not connected</span>
-      </div>
-    </div>
-  </div>
-
-  <!-- Use defer or move this below DOM -->
-  <script src="script.js" defer></script>
+    <script src="script.js"></script>
 </body>
 </html>
