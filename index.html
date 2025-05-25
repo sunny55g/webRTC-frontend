@@ -1,54 +1,82 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WebRTC P2P Messenger</title>
+    <title>WebRTC P2P Terminal</title>
     <link rel="stylesheet" href="styles.css">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' wss: https:; script-src 'self'; style-src 'self' 'unsafe-inline';">
 </head>
 <body>
     <div class="container">
-        <header>
-            <h1>🌐 WebRTC P2P Messenger</h1>
-            <div class="status" id="status">Disconnected</div>
+        <header class="header">
+            <h1>🌐 WebRTC P2P Terminal</h1>
+            <p>Direct peer-to-peer connections via WebRTC DataChannel</p>
         </header>
 
-        <div class="connection-panel">
-            <h2>Connection Settings</h2>
-            <div class="form-group">
-                <label for="username">Your Name:</label>
-                <input type="text" id="username" placeholder="Enter your name">
-            </div>
-            <div class="form-group">
-                <label for="address">IP:Port (e.g., 127.0.0.1:8080):</label>
-                <input type="text" id="address" placeholder="127.0.0.1:8080" value="127.0.0.1:8080">
-            </div>
-            <div class="controls">
-                <button id="host-btn">Host Connection</button>
-                <button id="join-btn">Join Connection</button>
-                <button id="disconnect-btn" disabled>Disconnect</button>
-            </div>
-        </div>
+        <div class="main-content">
+            <div class="connection-panel">
+                <div class="connection-form">
+                    <h2>Connection Settings</h2>
+                    
+                    <div class="form-group">
+                        <label for="username">Username:</label>
+                        <input type="text" id="username" placeholder="Enter your username" required>
+                    </div>
 
-        <div class="chat-panel">
-            <div class="messages" id="messages">
-                <div class="system-message">Welcome! Configure connection settings above.</div>
-            </div>
-            <div class="input-panel">
-                <input type="text" id="message-input" placeholder="Type a message..." disabled>
-                <button id="send-btn" disabled>Send</button>
-            </div>
-        </div>
+                    <div class="form-group">
+                        <label for="localPort">Local Port:</label>
+                        <input type="number" id="localPort" placeholder="8080" min="1024" max="65535" required>
+                    </div>
 
-        <div class="info-panel">
-            <div class="info-item">
-                <span class="label">Local:</span>
-                <span id="local-info">Not connected</span>
+                    <div class="form-group">
+                        <label for="targetAddress">Target Address (IP:PORT):</label>
+                        <input type="text" id="targetAddress" placeholder="127.0.0.1:8081" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="mode">Connection Mode:</label>
+                        <select id="mode">
+                            <option value="sender">Sender</option>
+                            <option value="receiver">Receiver</option>
+                        </select>
+                    </div>
+
+                    <div class="button-group">
+                        <button id="connectBtn" class="btn btn-primary">Connect</button>
+                        <button id="disconnectBtn" class="btn btn-secondary" disabled>Disconnect</button>
+                    </div>
+                </div>
+
+                <div class="status-panel">
+                    <h3>Connection Status</h3>
+                    <div class="status-indicator">
+                        <span class="status-dot" id="statusDot"></span>
+                        <span id="statusText">Disconnected</span>
+                    </div>
+                    <div class="connection-info">
+                        <div>Signaling: <span id="signalingStatus">Disconnected</span></div>
+                        <div>WebRTC: <span id="webrtcStatus">Disconnected</span></div>
+                        <div>Data Channel: <span id="dataChannelStatus">Closed</span></div>
+                    </div>
+                </div>
             </div>
-            <div class="info-item">
-                <span class="label">Remote:</span>
-                <span id="remote-info">Not connected</span>
+
+            <div class="chat-panel">
+                <div class="messages-container">
+                    <div id="messages" class="messages"></div>
+                </div>
+                
+                <div class="message-input-container">
+                    <input type="text" id="messageInput" placeholder="Type your message..." disabled>
+                    <button id="sendBtn" class="btn btn-primary" disabled>Send</button>
+                </div>
+            </div>
+
+            <div class="logs-panel">
+                <h3>System Logs</h3>
+                <div id="logs" class="logs"></div>
+                <button id="clearLogsBtn" class="btn btn-secondary">Clear Logs</button>
             </div>
         </div>
     </div>
