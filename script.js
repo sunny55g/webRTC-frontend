@@ -10,7 +10,7 @@ class WebRTCMessenger {
         this.targetAddress = '';
         
         // WebSocket server URL (replace with your Render URL when deployed)
-        this.signalingServerUrl = 'ws://localhost:3001';
+        this.signalingServerUrl = 'https://webrtc-backend-wd3d.onrender.com';
         
         this.initializeElements();
         this.bindEvents();
